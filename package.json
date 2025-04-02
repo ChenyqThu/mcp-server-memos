@@ -1,9 +1,10 @@
 {
-  "name": "mcp-server-memos",
-  "version": "0.0.1",
+  "name": "@chenyqthu/mcp-server-memos",
+  "version": "1.0.0",
   "description": "Interact with Memos through MCP",
   "private": false,
   "type": "module",
+  "homepage": "https://github.com/chenyqthu/mcp-server-memos",
   "bin": {
     "mcp-server-memos": "./build/index.js"
   },

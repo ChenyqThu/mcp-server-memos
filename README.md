@@ -36,8 +36,8 @@ MEMOS_TOKEN=your_access_token        # 访问令牌
 {
   "mcpServers": {
     "mcp-server-memos": {
-      "command": "node",
-      "args": ["/path/to/mcp-server-memos/build/index.js"],
+      "command": "npx",
+      "args": ["-y","@chenyqthu/mcp-server-memos"],
       "env": {
         "MEMOS_URL": "https://your-memos-server",
         "MEMOS_TOKEN": "your_access_token"
