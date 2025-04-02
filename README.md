@@ -106,11 +106,9 @@ npm run inspector
 ## 开发说明
 
 - 使用 TypeScript 开发
-- 使用 dotenv 管理环境变量
 - 支持热重载开发 (npm run watch)
 
 ## 注意事项
 
 - 请妥善保管你的访问令牌
-- 建议将 `.env` 文件添加到 `.gitignore`
 - 在生产环境中使用时,建议使用环境变量而不是命令行参数传递敏感信息
