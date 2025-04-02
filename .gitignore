@@ -1,4 +1,18 @@
-node_modules/
+# Environment variables
+.env
+
+# Build output
 build/
+
+# Node modules
+node_modules/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
 *.log
-.env*
+npm-debug.log*

@@ -1,129 +1,204 @@
-import requests
-from typing import List, Dict, Any
+from enum import Enum
+from typing import Annotated
+
+from grpclib.client import Channel
+from mcp import McpError, stdio_server, types
+from mcp.server import Server
+from pydantic import BaseModel, Field, TypeAdapter
+
+from .config import Config
+from .proto_gen.memos.api import v1 as memos_api_v1
 
 
-class MemosException(Exception):
-    """Custom exception for Memos API errors"""
+class MemosTools(str, Enum):
+    LIST_MEMO_TAGS = "list_memo_tags"
+    SEARCH_MEMO = "search_memo"
+    CREATE_MEMO = "create_memo"
+    GET_MEMO = "get_memo"
 
-    pass
+
+class Visibility(str, Enum):
+    PUBLIC = "PUBLIC"
+    PROTECTED = "PROTECTED"
+    PRIVATE = "PRIVATE"
+
+    def to_proto(self):
+        return memos_api_v1.Visibility.from_string(self.value)
 
 
-class Memos:
-    def __init__(self, memos_url, memos_api_key):
-        """
-        Initialize a Memos client.
+class SearchMemoRequest(BaseModel):
+    """Request to search memo"""
 
-        Args:
-            memos_url: The URL of the Memos API
-            memos_api_key: API key for authentication
-        """
-        self.memos_url = memos_url
-        self.memos_api_key = memos_api_key
-        self.headers = {
-            "Authorization": f"Bearer {self.memos_api_key}",
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        }
+    key_word: Annotated[
+        str,
+        Field(
+            description="""The key words to search for in the memo content.""",
+        ),
+    ]
 
-    def get_user_id(self) -> str:
-        """
-        Get the user ID of the authenticated user by checking auth status.
 
-        Returns:
-            str: The user ID of the authenticated user
+class CreateMemoRequest(BaseModel):
+    """Request to create memo"""
 
-        Raises:
-            MemosException: If there is an error retrieving the user ID
-        """
+    content: Annotated[
+        str,
+        Field(
+            description="""The content of the memo.""",
+        ),
+    ]
+    visibility: Annotated[
+        Visibility,
+        Field(default=Visibility.PRIVATE, description="""The visibility of the memo."""),
+    ]
+
+
+class GetMemoRequest(BaseModel):
+    """Request to get memo"""
+
+    name: Annotated[
+        str,
+        Field(
+            description="""The name of the memo.
+Format: memos/{id}
+"""
+        ),
+    ]
+
+
+class ListMemoTagsRequest(BaseModel):
+    """Request to list memo tags"""
+
+    parent: Annotated[
+        str,
+        Field(
+            default="memos/-",
+            description="""The parent, who owns the tags.
+Format: memos/{id}. Use "memos/-" to list all tags.
+""",
+        ),
+    ]
+    visibility: Annotated[
+        Visibility,
+        Field(default=Visibility.PRIVATE, description="""The visibility of the tags."""),
+    ]
+
+
+class MemoServiceToolAdapter:
+    memo_service: memos_api_v1.MemoServiceStub
+
+    def __init__(self, config: Config):
+        metadata = {"authorization": f"Bearer {config.token}"}
+        channel = Channel(config.host, config.port)
+        self.memo_service = memos_api_v1.MemoServiceStub(channel, metadata=metadata)
+
+    # search
+    async def search_memo(self, args: dict) -> list[types.TextContent]:
         try:
-            # Use the auth/status endpoint to get current user info
-            response = requests.post(
-                f"{self.memos_url}/api/v1/auth/status", headers=self.headers
-            )
-            response.raise_for_status()
+            params = SearchMemoRequest.model_validate(args)
+        except Exception as e:
+            raise McpError(types.INVALID_PARAMS, str(e))
 
-            # Extract the user ID from the response
-            user_data = response.json()
-            user_id = user_data.get("name")
+        req = memos_api_v1.ListMemosRequest(
+            filter=f"row_status == 'NORMAL' && content_search == ['{params.key_word}']"
+        )
+        res = await self.memo_service.list_memos(list_memos_request=req)
+        content = ", ".join([memo.content for memo in res.memos])
+        content = f"Search result:\n{content}"
+        return [types.TextContent(type="text", text=content)]
 
-            if not user_id:
-                raise MemosException("Could not retrieve user ID from auth status")
-
-            return user_id
-        except requests.RequestException as e:
-            raise MemosException(f"Error getting user ID: {e}")
-
-    def search_memos(self, query: str) -> List[Dict[str, Any]]:
-        """
-        Search memos using the Memos API.
-
-        Args:
-            query: Search query string
-
-        Returns:
-            A list of memo objects matching the query
-
-        Raises:
-            MemosException: If there is an error searching memos
-        """
-        # Get the user ID first
-        user_id = self.get_user_id()
-
-        params = {
-            "filter": f'content.contains("{query}")',  # Search by content
-            "pageSize": 20,  # Limit results
-        }
-
+    # create
+    async def create_memo(self, args: dict) -> list[types.TextContent]:
         try:
-            response = requests.get(
-                f"{self.memos_url}/api/v1/{user_id}/memos",
-                headers=self.headers,
-                params=params,
-            )
-            response.raise_for_status()
+            params = CreateMemoRequest.model_validate(args)
+        except Exception as e:
+            raise McpError(types.INVALID_PARAMS, str(e))
 
-            if response.status_code == 200:
-                return response.json().get("memos", [])
-            else:
-                raise MemosException(f"Error searching memos: {response.status_code}")
-        except requests.RequestException as e:
-            raise MemosException(f"Error searching memos: {e}")
+        req = memos_api_v1.CreateMemoRequest(
+            content=params.content,
+            visibility=params.visibility.to_proto(),
+        )
+        res = await self.memo_service.create_memo(create_memo_request=req)
+        content = f"Memo created: {res.name}"
+        return [types.TextContent(type="text", text=content)]
 
-    def create_memo(self, content: str, tags: List[str] = []) -> Dict[str, Any]:
-        """
-        Create a new memo using the Memos API.
-
-        Args:
-            content: Content of the memo
-            tags: List of tags for the memo
-
-        Returns:
-            The created memo object
-
-        Raises:
-            MemosException: If there is an error creating the memo
-        """
-        # Format content to include tags
-        formatted_content = content
-        if tags:
-            # Append tags to the end of content
-            formatted_content += "\n\n" + " ".join(tags)
-
-        # Prepare payload
-        payload = {
-            "content": formatted_content,
-            "visibility": "PRIVATE",  # Default to private memos
-        }
-
+    # get
+    async def get_memo(self, args: dict) -> list[types.TextContent]:
         try:
-            response = requests.post(
-                f"{self.memos_url}/api/v1/memos", headers=self.headers, json=payload
-            )
-            response.raise_for_status()
+            params = GetMemoRequest.model_validate(args)
+        except Exception as e:
+            raise McpError(types.INVALID_PARAMS, str(e))
 
-            if response.status_code in [200, 201]:
-                return response.json()
-            else:
-                raise MemosException(f"Error creating memo: {response.status_code}")
-        except requests.RequestException as e:
-            raise MemosException(f"Error creating memo: {e}")
+        req = memos_api_v1.GetMemoRequest(name=params.name)
+        res = await self.memo_service.get_memo(get_memo_request=req)
+        content = f"Memo:\n{res.content}"
+        return [types.TextContent(type="text", text=content)]
+
+    # list tags
+    async def list_memo_tags(self, args: dict) -> list[types.TextContent]:
+        try:
+            params = ListMemoTagsRequest.model_validate(args)
+        except Exception as e:
+            raise McpError(types.INVALID_PARAMS, str(e))
+
+        req = memos_api_v1.ListMemoTagsRequest(
+            parent=params.parent,
+            filter=f"visibilities == ['{params.visibility.value}']",
+        )
+        res = await self.memo_service.list_memo_tags(list_memo_tags_request=req)
+        content = ", ".join(res.tag_amounts.keys())
+        content = f"Tags:\n{content}"
+        return [types.TextContent(type="text", text=content)]
+
+
+def new_server(config: Config) -> Server:
+    tool_adapter = MemoServiceToolAdapter(config)
+    server = Server("mcp-server-memos")
+
+    @server.list_tools()
+    async def list_tools() -> list[types.Tool]:
+        return [
+            types.Tool(
+                name=MemosTools.SEARCH_MEMO,
+                description="Search for memos",
+                inputSchema=SearchMemoRequest.model_json_schema(),
+            ),
+            types.Tool(
+                name=MemosTools.CREATE_MEMO,
+                description="Create a new memo",
+                inputSchema=CreateMemoRequest.model_json_schema(),
+            ),
+            types.Tool(
+                name=MemosTools.GET_MEMO,
+                description="Get a memo",
+                inputSchema=GetMemoRequest.model_json_schema(),
+            ),
+            types.Tool(
+                name=MemosTools.LIST_MEMO_TAGS,
+                description="List all existing memo tags",
+                inputSchema=ListMemoTagsRequest.model_json_schema(),
+            ),
+        ]
+
+    # search
+    @server.call_tool()
+    async def call_tool(name: str, args: dict) -> list[types.TextContent]:
+        if name == MemosTools.SEARCH_MEMO:
+            return await tool_adapter.search_memo(args)
+        elif name == MemosTools.CREATE_MEMO:
+            return await tool_adapter.create_memo(args)
+        elif name == MemosTools.GET_MEMO:
+            return await tool_adapter.get_memo(args)
+        elif name == MemosTools.LIST_MEMO_TAGS:
+            return await tool_adapter.list_memo_tags(args)
+        else:
+            raise McpError(types.INVALID_PARAMS, f"Unknown tool: {name}")
+
+    return server
+
+
+async def serve_stdio(config: Config):
+    server = new_server(config)
+    options = server.create_initialization_options()
+    # print("serve_stdio, options:", options)
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, options, raise_exceptions=True)

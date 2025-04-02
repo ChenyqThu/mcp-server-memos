@@ -1,120 +1,149 @@
 #!/usr/bin/env node
 
 /**
- * This is a template MCP server that implements a simple notes system.
- * It demonstrates core MCP concepts like resources and tools by allowing:
- * - Listing notes as resources
- * - Reading individual notes
- * - Creating new notes via a tool
- * - Summarizing all notes via a prompt
+ * MCP server for Memos
+ * Implements tools for interacting with Memos API
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
-  ListResourcesRequestSchema,
   ListToolsRequestSchema,
-  ReadResourceRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { MemosClient, Visibility } from "./memos.js";
 
 /**
- * Type alias for a note object.
+ * 解析命令行参数
+ * 示例: node index.js --memos_url=https://memos.example.com --memos_token=your_token
  */
-type Note = { title: string, content: string };
+function parseArgs() {
+  const args: Record<string, string> = {};
+  process.argv.slice(2).forEach((arg) => {
+    if (arg.startsWith("--")) {
+      const [key, value] = arg.slice(2).split("=");
+      if (key && value) {
+        args[key] = value;
+      }
+    }
+  });
+  return args;
+}
 
 /**
- * Simple in-memory storage for notes.
- * In a real implementation, this would likely be backed by a database.
+ * 获取配置信息
+ * 优先级: 命令行参数 > 环境变量
  */
-const notes: { [id: string]: Note } = {
-  "1": { title: "First Note", content: "This is note 1" },
-  "2": { title: "Second Note", content: "This is note 2" }
-};
+function getConfig() {
+  const args = parseArgs();
+  
+  // 获取 Memos URL
+  const memosUrl = args.memos_url || process.env.MEMOS_URL;
+  if (!memosUrl) {
+    throw new Error("请设置 Memos URL。可通过以下方式设置:\n" +
+      "1. 环境变量: MEMOS_URL=https://your-memos-server\n" +
+      "2. 命令行参数: --memos_url=https://your-memos-server");
+  }
+
+  // 获取 Memos Token
+  const memosToken = args.memos_token || process.env.MEMOS_TOKEN;
+  if (!memosToken) {
+    throw new Error("请设置 Memos Token。可通过以下方式设置:\n" +
+      "1. 环境变量: MEMOS_TOKEN=your_token\n" +
+      "2. 命令行参数: --memos_token=your_token");
+  }
+
+  return {
+    baseUrl: memosUrl,
+    token: memosToken
+  };
+}
 
 /**
- * Create an MCP server with capabilities for resources (to list/read notes),
- * tools (to create new notes), and prompts (to summarize notes).
+ * Create an MCP server with capabilities for tools.
  */
 const server = new Server(
   {
     name: "mcp-server-memos",
-    version: "0.1.0",
+    version: "0.0.1",
   },
   {
     capabilities: {
-      resources: {},
       tools: {},
-      prompts: {},
     },
   }
 );
 
 /**
- * Handler for listing available notes as resources.
- * Each note is exposed as a resource with:
- * - A note:// URI scheme
- * - Plain text MIME type
- * - Human readable name and description (now including the note title)
- */
-server.setRequestHandler(ListResourcesRequestSchema, async () => {
-  return {
-    resources: Object.entries(notes).map(([id, note]) => ({
-      uri: `note:///${id}`,
-      mimeType: "text/plain",
-      name: note.title,
-      description: `A text note: ${note.title}`
-    }))
-  };
-});
-
-/**
- * Handler for reading the contents of a specific note.
- * Takes a note:// URI and returns the note content as plain text.
- */
-server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-  const url = new URL(request.params.uri);
-  const id = url.pathname.replace(/^\//, '');
-  const note = notes[id];
-
-  if (!note) {
-    throw new Error(`Note ${id} not found`);
-  }
-
-  return {
-    contents: [{
-      uri: request.params.uri,
-      mimeType: "text/plain",
-      text: note.content
-    }]
-  };
-});
-
-/**
  * Handler that lists available tools.
- * Exposes a single "create_note" tool that lets clients create new notes.
  */
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
       {
-        name: "create_note",
-        description: "Create a new note",
+        name: "search_memo",
+        description: "Search for memos using keywords",
         inputSchema: {
           type: "object",
           properties: {
-            title: {
+            key_word: {
               type: "string",
-              description: "Title of the note"
+              description: "The keywords to search for in memo content"
+            }
+          },
+          required: ["key_word"]
+        }
+      },
+      {
+        name: "create_memo",
+        description: "Create a new memo",
+        inputSchema: {
+          type: "object", 
+          properties: {
+            content: {
+              type: "string",
+              description: "The content of the memo"
+            },
+            visibility: {
+              type: "string",
+              enum: Object.values(Visibility),
+              description: "Memo visibility",
+              default: Visibility.PRIVATE
+            }
+          },
+          required: ["content"]
+        }
+      },
+      {
+        name: "get_memo",
+        description: "Get a specific memo by ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string", 
+              description: "The name/ID of the memo (format: memos/{id})"
+            }
+          },
+          required: ["name"]
+        }
+      },
+      {
+        name: "update_memo",
+        description: "Update a specific memo by ID",
+        inputSchema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "The name/ID of the memo (format: memos/{id})"
             },
             content: {
               type: "string",
-              description: "Text content of the note"
+              description: "The content of the memo"
             }
           },
-          required: ["title", "content"]
+          required: ["name", "content"]
         }
       }
     ]
@@ -122,101 +151,115 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 /**
- * Handler for the create_note tool.
- * Creates a new note with the provided title and content, and returns success message.
+ * Handler for tool calls
  */
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  switch (request.params.name) {
-    case "create_note": {
-      const title = String(request.params.arguments?.title);
-      const content = String(request.params.arguments?.content);
-      if (!title || !content) {
-        throw new Error("Title and content are required");
-      }
-
-      const id = String(Object.keys(notes).length + 1);
-      notes[id] = { title, content };
-
-      return {
-        content: [{
+  let config;
+  try {
+    config = getConfig();
+  } catch (error: any) {
+    return {
+      content: [
+        {
           type: "text",
-          text: `Created note ${id}: ${title}`
-        }]
+          text: `配置错误: ${error.message}`
+        }
+      ]
+    };
+  }
+
+  const memos = new MemosClient(config);
+
+  switch (request.params.name) {
+    case "search_memo": {
+      const keyWord = String(request.params.arguments?.key_word);
+      if (!keyWord) {
+        throw new Error("关键词不能为空");
+      }
+      const result = await memos.searchMemos({ keyWord });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `搜索结果: ${JSON.stringify(result)}`
+          }
+        ]
+      };
+    }
+
+    case "create_memo": {
+      const content = String(request.params.arguments?.content);
+      const visibility = (request.params.arguments?.visibility || Visibility.PRIVATE) as Visibility;
+      if (!content) {
+        throw new Error("内容不能为空");
+      }
+      const result = await memos.createMemo({ content, visibility });
+      const memoUrl = `${config.baseUrl}/${result.name}`;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `笔记创建成功，访问地址: ${memoUrl}`
+          }
+        ]
+      };
+    }
+
+    case "get_memo": {
+      const name = String(request.params.arguments?.name);
+      if (!name) {
+        throw new Error("笔记ID不能为空");
+      }
+      const result = await memos.getMemo({ name });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `笔记内容: ${JSON.stringify(result)}`
+          }
+        ]
+      };
+    }
+
+    case "update_memo": {
+      const name = String(request.params.arguments?.name);
+      const content = String(request.params.arguments?.content);
+      if (!name || !content) {
+        throw new Error("笔记ID和内容不能为空");
+      }
+      const result = await memos.updateMemo({ name, content });
+      const memoUrl = `${config.baseUrl}/${result.name}`;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `笔记更新成功，访问地址: ${memoUrl}`
+          }
+        ]
       };
     }
 
     default:
-      throw new Error("Unknown tool");
+      throw new Error("未知的工具名称");
   }
-});
-
-/**
- * Handler that lists available prompts.
- * Exposes a single "summarize_notes" prompt that summarizes all notes.
- */
-server.setRequestHandler(ListPromptsRequestSchema, async () => {
-  return {
-    prompts: [
-      {
-        name: "summarize_notes",
-        description: "Summarize all notes",
-      }
-    ]
-  };
-});
-
-/**
- * Handler for the summarize_notes prompt.
- * Returns a prompt that requests summarization of all notes, with the notes' contents embedded as resources.
- */
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  if (request.params.name !== "summarize_notes") {
-    throw new Error("Unknown prompt");
-  }
-
-  const embeddedNotes = Object.entries(notes).map(([id, note]) => ({
-    type: "resource" as const,
-    resource: {
-      uri: `note:///${id}`,
-      mimeType: "text/plain",
-      text: note.content
-    }
-  }));
-
-  return {
-    messages: [
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "Please summarize the following notes:"
-        }
-      },
-      ...embeddedNotes.map(note => ({
-        role: "user" as const,
-        content: note
-      })),
-      {
-        role: "user",
-        content: {
-          type: "text",
-          text: "Provide a concise summary of all the notes above."
-        }
-      }
-    ]
-  };
 });
 
 /**
  * Start the server using stdio transport.
- * This allows the server to communicate via standard input/output streams.
  */
 async function main() {
+  try {
+    getConfig();
+  } catch (error: any) {
+    console.error("配置错误:", error.message);
+    process.exit(1);
+  }
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
 
 main().catch((error) => {
-  console.error("Server error:", error);
+  console.error("服务器错误:", error);
   process.exit(1);
 });

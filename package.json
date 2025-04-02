@@ -1,8 +1,8 @@
 {
   "name": "mcp-server-memos",
-  "version": "0.1.0",
-  "description": "A MCP server for Memos.",
-  "private": true,
+  "version": "0.0.1",
+  "description": "Interact with Memos through MCP",
+  "private": false,
   "type": "module",
   "bin": {
     "mcp-server-memos": "./build/index.js"
@@ -17,7 +17,8 @@
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0"
+    "@modelcontextprotocol/sdk": "0.6.0",
+    "node-fetch": "^3.3.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.24",
