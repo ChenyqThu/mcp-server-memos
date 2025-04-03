@@ -1,6 +1,6 @@
 {
   "name": "@chenyqthu/mcp-server-memos",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Interact with Memos through MCP",
   "private": false,
   "type": "module",
