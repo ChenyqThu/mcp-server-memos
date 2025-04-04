@@ -47,6 +47,15 @@ MEMOS_TOKEN=your_access_token        # 访问令牌
 }
 ```
 
+### 使用 MCP.so 托管版本
+
+本服务已支持托管在 MCP.so 上，你可以直接使用托管版本而无需在本地配置和运行服务器。
+
+在使用 MCP.so 托管版本时，只需提供以下参数：
+
+- `MEMOS_URL`: 你的 Memos 服务器地址
+- `MEMOS_TOKEN`: 你的 Memos 访问令牌
+
 ## 安装和运行
 
 1. 克隆仓库:
@@ -107,6 +116,21 @@ npm run inspector
 
 - 使用 TypeScript 开发
 - 支持热重载开发 (npm run watch)
+
+## 托管在 MCP.so
+
+该项目已配置为可以托管在 MCP.so 平台上。通过托管，你可以：
+
+- 无需本地安装和配置
+- 稳定的服务可用性
+- 集成到 MCP Playground 中
+
+### 托管步骤
+
+1. 确保你的代码已托管在 GitHub 上并使用商业友好的开源许可证（MIT、Apache 等）
+2. 确保代码不依赖于读取本地数据（如文件、本地数据库等）
+3. 通过 MCP.so 平台提交你的服务器
+4. 审核通过后，你的服务器将显示在 MCP Playground 中
 
 ## 注意事项
 

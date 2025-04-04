@@ -7,11 +7,22 @@
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { RestServerTransport } from "@chatmcp/sdk/server/rest.js";
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { MemosClient, Visibility } from "./memos.js";
+import { getParamValue, getAuthValue } from "@chatmcp/sdk/utils/index.js";
+
+// 获取参数配置，优先顺序：参数传递 > 环境变量
+const memosUrl = getParamValue("memos_url") || process.env.MEMOS_URL || "";
+const memosToken = getParamValue("memos_token") || process.env.MEMOS_TOKEN || "";
+
+// 获取服务器模式和端口配置
+const mode = getParamValue("mode") || "stdio";
+const port = parseInt(getParamValue("port") || "9593");
+const endpoint = getParamValue("endpoint") || "/rest";
 
 /**
  * 解析命令行参数
@@ -32,30 +43,30 @@ function parseArgs() {
 
 /**
  * 获取配置信息
- * 优先级: 命令行参数 > 环境变量
+ * 优先级: 参数传递 > 命令行参数 > 环境变量
  */
-function getConfig() {
+function getConfig(request?: any) {
   const args = parseArgs();
   
   // 获取 Memos URL
-  const memosUrl = args.memos_url || process.env.MEMOS_URL;
-  if (!memosUrl) {
+  const url = getAuthValue(request, "MEMOS_URL") || memosUrl || args.memos_url || process.env.MEMOS_URL;
+  if (!url) {
     throw new Error("请设置 Memos URL。可通过以下方式设置:\n" +
       "1. 环境变量: MEMOS_URL=https://your-memos-server\n" +
       "2. 命令行参数: --memos_url=https://your-memos-server");
   }
 
   // 获取 Memos Token
-  const memosToken = args.memos_token || process.env.MEMOS_TOKEN;
-  if (!memosToken) {
+  const token = getAuthValue(request, "MEMOS_TOKEN") || memosToken || args.memos_token || process.env.MEMOS_TOKEN;
+  if (!token) {
     throw new Error("请设置 Memos Token。可通过以下方式设置:\n" +
       "1. 环境变量: MEMOS_TOKEN=your_token\n" +
       "2. 命令行参数: --memos_token=your_token");
   }
 
   return {
-    baseUrl: memosUrl,
-    token: memosToken
+    baseUrl: url,
+    token: token
   };
 }
 
@@ -156,7 +167,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   let config;
   try {
-    config = getConfig();
+    config = getConfig(request);
   } catch (error: any) {
     return {
       content: [
@@ -245,18 +256,35 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 });
 
 /**
- * Start the server using stdio transport.
+ * Start the server using stdio or rest transport.
  */
 async function main() {
   try {
-    getConfig();
+    // 在启动服务器前验证是否可以获取配置
+    if (!memosUrl || !memosToken) {
+      getConfig();
+    }
+
+    // 根据模式选择传输方式
+    if (mode === "rest") {
+      const transport = new RestServerTransport({
+        port,
+        endpoint,
+      });
+      await server.connect(transport);
+      await transport.startServer();
+      console.error(`Memos MCP服务运行于REST模式，端口：${port}，路径：${endpoint}`);
+      return;
+    }
+
+    // 默认使用stdio传输
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("Memos MCP服务运行于STDIO模式");
   } catch (error: any) {
-    console.error("配置错误:", error.message);
+    console.error("服务器错误:", error.message);
     process.exit(1);
   }
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 }
 
 main().catch((error) => {

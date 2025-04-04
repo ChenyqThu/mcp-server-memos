@@ -1,0 +1,63 @@
+params:
+  type: object
+  properties:
+    MEMOS_URL:
+      type: string
+      description: Memos服务器地址
+    MEMOS_TOKEN:
+      type: string
+      description: Memos访问令牌
+  required:
+    - MEMOS_URL
+    - MEMOS_TOKEN
+
+rest:
+  name: memos
+  port: 9593
+  endpoint: /rest
+
+npx:
+  command:
+    | MEMOS_URL={MEMOS_URL} MEMOS_TOKEN={MEMOS_TOKEN} npx -y @chenyqthu/mcp-server-memos
+  config:
+    | {
+        "mcpServers": {
+          "memos": {
+            "command": "npx",
+            "args": [
+              "-y",
+              "@chenyqthu/mcp-server-memos"
+            ],
+            "env": {
+              "MEMOS_URL": "YOUR_MEMOS_URL_HERE",
+              "MEMOS_TOKEN": "YOUR_MEMOS_TOKEN_HERE"
+            }
+          }
+        }
+      }
+
+docker:
+  command:
+    | docker run -i --rm -e MEMOS_URL={MEMOS_URL} -e MEMOS_TOKEN={MEMOS_TOKEN} mcp/memos
+  config:
+    | {
+        "mcpServers": {
+          "memos": {
+            "command": "docker",
+            "args": [
+              "run",
+              "-i",
+              "--rm",
+              "-e",
+              "MEMOS_URL",
+              "-e", 
+              "MEMOS_TOKEN",
+              "mcp/memos"
+            ],
+            "env": {
+              "MEMOS_URL": "YOUR_MEMOS_URL_HERE",
+              "MEMOS_TOKEN": "YOUR_MEMOS_TOKEN_HERE"
+            }
+          }
+        }
+      } 
